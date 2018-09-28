@@ -31,9 +31,8 @@ class Saver:
                 date=last_date
             else:
                 date=today
-
-        if date == last_date and input['minute'] == last_minute:
-            return
+            if date == last_date and input['minute'] == last_minute:
+                return
 
         sample={}
         sample['name']=name
