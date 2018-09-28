@@ -4,13 +4,11 @@ from selenium.webdriver.support.wait import WebDriverWait
 from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, ElementNotVisibleException
 from selenium.webdriver.common.action_chains import ActionChains
 
-import re, time
+import re, time, logging
 import numpy as np
 import pandas as pd
 import traceback
 import datetime
-
-from utils import log
 
 def parse_time(string):
     match_result=re.match('(\d+):(\d+)',string)
@@ -19,7 +17,7 @@ def parse_time(string):
         second=int(match_result.group(2))
         return minute
     else:
-        print('Warning: parse time wrong format')
+        logging.warning('parse time wrong format')
         return -1
 
 def parse_gidcell_int(string):
@@ -30,6 +28,7 @@ def parse_gidcell_int(string):
     elif string=='':
         return np.NaN
     else:
+        logging.warning('Raise ValueError:GridCell Int:%d'%string)
         raise ValueError('ValueError:GridCell Int:%d'%string)
 
 def parse_one_match(browser,league,saver):
@@ -39,14 +38,13 @@ def parse_one_match(browser,league,saver):
             _parse_one_match(browser,league,saver)
             break
         except (StaleElementReferenceException,TimeoutException) as e:
-            traceback.print_exc()
-            print('Error parse_one_match')
-            print('refreshing')
+            logging.warning(traceback.format_exc())
+            logging.warning('refreshing')
             browser.refresh()
             time.sleep(5)
-            print('retry')
+            logging.warning('retry')
     else:
-        print('Parsing_one_match fails, turn to upper page')
+        logging.error('Parsing_one_match fails, turn to upper page')
 
 def parse_odd1(market):
     # gl-MarketGroupContainer
@@ -92,7 +90,9 @@ def _parse_one_match(browser,league,saver):
     
     team_names=xpaths('//div[@class="ipe-SoccerGridColumn_TeamName "]/div[@class="ipe-SoccerGridCell "]')
     result['name']=[x.text for x in team_names]
-    log('parsing '+' '.join(result['name']))
+    logstr='parsing '+' '.join(result['name'])
+    logstr.encode(encoding='utf-8')
+    logging.info(logstr)
 
     #=====================================================================
     #======================ScoccerGridCells===============================
@@ -183,7 +183,7 @@ def _parse_one_match(browser,league,saver):
     odds=parse_odd(browser)
     result['odds']=odds
     saver.save(result)
-    log('parse finished.')
+    logging.info('minute=%d parse finished.'%result['minute'])
 
 
 def parse_odd(browser):
@@ -199,7 +199,7 @@ def parse_odd(browser):
                     break
                 except: continue
             else:
-                print("market's menu can't be open")
+                logging.warning("market's menu can't be open")
                 continue
             time.sleep(0.5)
         container = market.find_element_by_xpath('.//div[contains(@class,"gl-MarketGroup_Wrapper ")]/div')
@@ -212,7 +212,6 @@ def parse_odd(browser):
             if att == 'gl-MarketGroupContainer gl-MarketGroupContainer_HasLabels ':
                 odds[market_head] = parse_odd2(container)
         except Exception as e:
-            print(e)
-            print("Error during parsing odds in %s" % market_head)
-            print(e)
+            logging.warning(traceback.format_exc())
+            logging.warning("Error during parsing odds in %s" % market_head)
     return odds

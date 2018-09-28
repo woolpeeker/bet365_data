@@ -5,6 +5,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 from selenium.common.exceptions import StaleElementReferenceException,NoSuchElementException,TimeoutException
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
+import logging
 
 import traceback
 import re, time
@@ -14,7 +15,6 @@ import datetime
 
 from parse_one_match import parse_one_match
 from Saver import Saver
-from utils import log
 
 
 
@@ -70,11 +70,11 @@ class Crawler:
                 delta=now-before
                 wait_time=max(0, self.round_time - delta.total_seconds())
                 if wait_time>0:
-                    log('wait for next round.')
+                    logging.info('wait for next round.')
                     time.sleep(wait_time)
 
             try:
-                log('start.')
+                logging.info('start.')
                 self.click_soccer()
 
                 leagues=self.browser.find_elements_by_xpath('//div[contains(@class,"ipo-CompetitionButton_NameLabel ")]')
@@ -105,17 +105,17 @@ class Crawler:
                                     parse_one_match(self.browser,league,saver=self.saver)
                                     break
                                 except Exception as e:
-                                    traceback.print_exc()
+                                    logging.error(traceback.format_exc())
                                     continue
                             #Go back to mainlist
                             self.click_overview()
                         except:
-                            traceback.print_exc()
+                            logging.error(traceback.format_exc())
                             continue
                 through_flag=True
             except Exception as e:
-                traceback.print_exc()
-                print('refreshing')
+                logging.warning(traceback.format_exc())
+                logging.warning('refreshing')
                 self.browser.refresh()
                 self.click_overview(timeout=30)
 
@@ -133,7 +133,7 @@ class Crawler:
                 soccer_button.click()
                 break
             except TimeoutException as e:
-                print('No Soccer Section. Waiting 5 min.')
+                logging.info('No Soccer Section. Waiting 5 min.')
                 time.sleep(300)
                 self.browser.refresh()
 
@@ -148,20 +148,31 @@ class Crawler:
             self.flush()
             self.browser.close()
         except:
-            traceback.print_exc()
-            log('crawler close fail.')
+            logging.error(traceback.format_exc())
+            logging.error('crawler close fail.')
+
+
+def set_logging():
+    formatter = logging.Formatter('%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
+    logging.basicConfig(level=logging.INFO,datefmt='%m-%d %H:%M:%S')
+    file_handler = logging.FileHandler("main.log", "a",encoding="UTF-8")
+    file_handler.setFormatter(formatter)
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    logging.getLogger('').addHandler(console)
+    logging.getLogger('').addHandler(file_handler)
 
 
 if __name__=='__main__':
+    set_logging()
     while True:
         crawler=Crawler('data/data')
         try:
             crawler.run()
         except Exception as e:
-            traceback.print_exc()
-            print()
+            logging.error(traceback.format_exc())
             crawler.close()
             del crawler
-            print("===========================================================")
-            log('Fatal Error: Crawler Restart.')
-            print("===========================================================")
+            logging.error("===========================================================")
+            logging.error('Fatal Error: Crawler Restart.')
+            logging.error("===========================================================")

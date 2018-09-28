@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import datetime
 import pickle
-from utils import log
+import logging
 
 class Saver:
     def __init__(self,prefix_path):
@@ -26,7 +26,7 @@ class Saver:
         else:
             sel=sel_name.sort_values(['date','minute'])
             last_date,last_minute=sel.iloc[-1]['date'], sel.iloc[-1]['minute']
-            delta=datetime.date.today()-last_date
+            delta=today-last_date
             if delta.total_seconds()<2*25*3600:
                 date=last_date
             else:
@@ -55,6 +55,6 @@ class Saver:
         return bak_file
 
     def flush(self):
-        log('Saver flush data...')
+        logging.info('Saver flush data...')
         pickle.dump(self.data,open(self.bak_fn,'wb'))
         pickle.dump(self.data,open(self.file,'wb'))
