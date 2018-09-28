@@ -56,14 +56,18 @@ class Crawler:
 
     def _parse(self):
         now=None
+        flush_time=None
         through_flag=False
         while True:
             before=now
             now=datetime.datetime.now()
+            if flush_time is None:
+                flush_time=now
+            if flush_time is not None and now-flush_time>datetime.timedelta(seconds=600):
+                self.flush()
+                flush_time=now
             if before is not None and through_flag:
                 delta=now-before
-                if delta.total_seconds()>5*60:
-                    self.flush()
                 wait_time=max(0, self.round_time - delta.total_seconds())
                 if wait_time>0:
                     log('wait for next round.')

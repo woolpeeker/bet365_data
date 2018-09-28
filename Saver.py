@@ -24,12 +24,16 @@ class Saver:
         if sel_name.empty:
             date=today
         else:
-            sel_name.sort_values(['date'])
-            delta=datetime.date.today()-sel_name.iloc[-1]['date']
+            sel=sel_name.sort_values(['date','minute'])
+            last_date,last_minute=sel.iloc[-1]['date'], sel.iloc[-1]['minute']
+            delta=datetime.date.today()-last_date
             if delta.total_seconds()<2*25*3600:
-                date=sel_name.iloc[-1]['date']
+                date=last_date
             else:
                 date=today
+
+        if date == last_date and input['minute'] == last_minute:
+            return
 
         sample={}
         sample['name']=name
