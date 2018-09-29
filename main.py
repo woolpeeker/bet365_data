@@ -2,7 +2,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
-from selenium.common.exceptions import StaleElementReferenceException,NoSuchElementException,TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException,NoSuchElementException,TimeoutException,WebDriverException
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
 import logging
@@ -23,11 +23,8 @@ class Crawler:
         self.out_path=out_path
         self.saver=Saver('data/data')
         self.round_time=3*60
-
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--disable-gpu')
         self.browser=webdriver.Chrome()
+        self.init_time=datetime.datetime.now()
 
     def flush(self):
         self.saver.flush()
@@ -70,6 +67,9 @@ class Crawler:
                 delta=now-before
                 wait_time=max(0, self.round_time - delta.total_seconds())
                 if wait_time>0:
+                    if now-self.init_time>datetime.timedelta(seconds=5*3600):
+                        logging.info('5 hour round. should restart to free memory.')
+                        self.close()
                     logging.info('wait for next round.')
                     time.sleep(wait_time)
 
@@ -109,6 +109,9 @@ class Crawler:
                                     continue
                             #Go back to mainlist
                             self.click_overview()
+                        except WebDriverException as e:
+                            logging.error(traceback.format_exc())
+                            break
                         except:
                             logging.error(traceback.format_exc())
                             continue
