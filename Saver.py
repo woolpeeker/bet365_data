@@ -6,6 +6,8 @@ import datetime
 import pickle
 import logging
 
+
+# TODO: find a easy solution for concurrent saving
 class Saver:
     def __init__(self,prefix_path):
         self.prefix_path=prefix_path
