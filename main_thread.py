@@ -44,6 +44,7 @@ class MainThread(Crawler):
         self.flags['last_parse'] = datetime.datetime.now()
 
     def work(self):
+        #TODO fake a process for debug
         self.crawlerList = [CrawlerThread('crawlerThread_%d' % i) for i in range(self.n_thread)]
         self._open()
         self.work_loop()
