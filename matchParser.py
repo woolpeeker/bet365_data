@@ -1,11 +1,10 @@
-import logging, re, time
+import re
 import traceback
-import numpy as np
-import pandas as pd
+import json
 
 from Crawler import Crawler
 
-#TODO: add parse more odds, such as corner, goals
+#TODO: WatchDog
 class MatchParser(Crawler):
     def __init__(self, browser, logger):
         self.browser = browser
@@ -20,6 +19,7 @@ class MatchParser(Crawler):
                 result.update(self.parse_gridcell())
                 result.update(self.parse_all_stats())
                 result.update(self.parse_odd())
+                result = self.key_convert(result)
                 return result
             except Exception as e:
                 self.logger.error('Error when parsing match %s' % str(match))
@@ -35,8 +35,8 @@ class MatchParser(Crawler):
         result['minute'] = self.__parse_time__(minute)
 
         team_names = self.xpaths('//div[@class="ipe-SoccerGridColumn_TeamName "]/div[@class="ipe-SoccerGridCell "]')
-        result['team_name_h'] = team_names[0].text
-        result['team_name_a'] = team_names[1].text
+        result['team_h'] = team_names[0].text
+        result['team_a'] = team_names[1].text
         self.logger.debug('result:%s'%result)
         return result
 
@@ -89,35 +89,103 @@ class MatchParser(Crawler):
             stats1 = [self.__parse_gidcell_int__(x.text) for x in stats1]
             stats2 = [self.__parse_gidcell_int__(x.text) for x in stats2]
             stats = [stats1, stats2]
-            stats = np.array(stats)
 
             for i in range(len(titles)):
-                result[titles[i] + '_h'] = stats[0, i]
-                result[titles[i] + '_a'] = stats[1, i]
+                result[titles[i] + '_h'] = stats[0][i]
+                result[titles[i] + '_a'] = stats[1][i]
         self.logger.debug('result: %s' % result)
         return result
 
     def parse_odd(self):
+        result={}
         self.logger.debug('function parse_odd')
         xpath, xpaths = self.xpath, self.xpaths
-        market_groups = xpaths('//div[@class="gl-MarketGroup "]')
-        for market in market_groups[0:min(8, len(market_groups))]:
-            fulltime_group = market.find_elements_by_xpath(
-                './/span[contains(@class,"gl-MarketGroupButton_Text")][text()="Fulltime Result"]/../..')
-            if fulltime_group:
-                odds=xpaths('.//span[@class="gl-Participant_Odds"]', section=fulltime_group[0])
-                try:
-                    odds = [float(x.text) for x in odds]
-                except ValueError as e:
-                    odds = [np.NaN] * 3
-            else:
-                odds = [np.NaN] * 3
-        result = {'odds_home': odds[0],
-                  'odds_draw': odds[1],
-                  'odds_away': odds[2]}
+        markets = xpaths('//div[@class="ipe-EventViewDetail_MarketGrid gl-MarketGrid "]')
+        if not markets:
+            self.logger.warning('No market_groups')
+            return result
+        markets=markets[0]
+
+        #Full time odds
+        fulltime = self.parse_none_odds_market(markets,'Fulltime Result', 3)
+        result['odds_fulltime']=json.dumps(fulltime)
+
+        #double chance
+        double = self.parse_none_odds_market(markets,'Double Chance', 3)
+        result['odds_double']=json.dumps(double)
+
+        #goals
+        goals=self.parse_label_odds_market(markets, 'Match Goals', 3)
+        alter_goals=self.parse_label_odds_market(markets, 'Alternative Match Goals', 3)
+        goals= [*goals, *alter_goals]
+        result['odds_goals']=json.dumps(goals)
+
+        #corner
+        corners=self.parse_label_odds_market(markets, 'Match Corners', 4)
+        result['odds_corners'] = json.dumps(corners)
+
+        #asian corner
+        asian_corner= self.parse_label_odds_market(markets, 'Asian Corners', 3)
+        result['odds_asian_corners'] = json.dumps(asian_corner)
+
         self.logger.debug('result: %s' % result)
         return result
 
+    def parse_none_odds_market(self,markets, name, row_len):
+        odds=[]
+        group = markets.find_elements_by_xpath(
+            './/span[contains(@class,"gl-MarketGroupButton_Text")][text()="%s"]/../..' % name)
+        if group:
+            group=group[0]
+            if group.find_elements_by_xpath('.//span[@class="gl-MarketGroupButton_CurrentlySuspended"]'):
+                self.logger.info('%s is suspended. Pass' % name)
+                return odds
+            odds = self.xpaths('.//span[@class="gl-Participant_Odds"]', section=group)
+            try:
+                odds = [float(x.text) for x in odds]
+            except ValueError as e:
+                odds = [None] * 3
+        else:
+            odds = [None] * 3
+        if len(odds) % row_len:
+            self.logger.error('Error in parse_none_odds_market: %s' % name)
+        return odds
+
+    def parse_label_odds_market(self, markets, name, row_len):
+        odds = []
+        group = markets.find_elements_by_xpath(
+            './/span[contains(@class,"gl-MarketGroupButton_Text")][text()="%s"]/../..' % name)
+
+        if group:
+            group=group[0]
+            if group.find_elements_by_xpath('.//span[@class="gl-MarketGroupButton_CurrentlySuspended"]'):
+                self.logger.info('%s is suspended. Pass' % name)
+                return odds
+            corner_button = group.find_element_by_xpath(
+                './/span[contains(@class,"gl-MarketGroupButton_Text")][text()="%s"]/..' % name)
+            if 'gl-MarketGroup_Open' not in corner_button.get_attribute("class"):
+                corner_button.click()
+                self.wait4elem(
+                    './/span[contains(@class,"gl-MarketGroupButton_Text")][text()="%s"]/../..//div[contains(@class,"gl-MarketLabel ")]' % name)
+            wrapper = group.find_element_by_xpath('.//div[@class="gl-MarketGroup_Wrapper "]')
+            odds = wrapper.find_elements_by_xpath('.//span')
+            try:
+                odds = [float(x.text) for x in odds]
+            except ValueError:
+                self.logger.error(traceback.format_exc())
+                self.logger.error('odds: %s' % odds)
+            if len(odds) % row_len:
+                raise Exception("len(odds) is %d, can't divided by %d" % (len(odds), row_len))
+        return odds
+
+    def key_convert(self,result):
+        converted={}
+        for k,v in result.items():
+            k=k.lower().replace('%','')
+            k=re.sub(' +','_',k)
+            k = re.sub('_+', '_', k)
+            converted[k]=v
+        return converted
 
     def __parse_time__(self, string):
         match_result = re.match('(\d+):(\d+)', string)
@@ -127,7 +195,7 @@ class MatchParser(Crawler):
             return minute
         else:
             self.logger.warning('parse time wrong format')
-            return np.NaN
+            return None
 
 
     def __parse_gidcell_int__(self, string):
@@ -136,7 +204,7 @@ class MatchParser(Crawler):
         if string.isdigit():
             return int(string)
         elif string == '':
-            return np.NaN
+            return None
         else:
             self.logger.warning('Raise ValueError:GridCell Int:%d' % string)
             raise ValueError('ValueError:GridCell Int:%d' % string)
