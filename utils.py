@@ -1,4 +1,6 @@
 
+import os, glob, shutil
+
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -21,3 +23,9 @@ def get_logger(name,level=logging.DEBUG, log_file=None):
     logger.addHandler(file_handler)
 
     return logger
+
+
+def clean_rust_mozprofile(path):
+    dirs = glob.glob(path)
+    for dir in dirs:
+        shutil.rmtree(dir, ignore_errors=True)

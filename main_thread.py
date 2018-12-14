@@ -1,36 +1,34 @@
 from selenium.common.exceptions import TimeoutException
 from selenium import webdriver
+from selenium.webdriver.firefox.options import Options
 
 import datetime
-import queue
 import time
-import threading
 import traceback
-from collections import deque
+import os
+import multiprocessing as mp
 
 from Crawler import Crawler
-from CrawlerThread import CrawlerThread
-from Saver import Saver
 from utils import get_logger
 
 NT = 2
 
 
 class MainThread(Crawler):
-    def __init__(self):
-        super(MainThread, self).__init__('MainThead')
-        self.n_thread = NT
-        self.logger=get_logger('MainThead')
-        self.crawlerList = []
-        self.oldMatches = deque(maxlen=300)
-        self.saver = Saver()
+    def __init__(self, name='MainThead'):
+        self.name = name
+        self.logger=get_logger(name=self.name)
+        super(MainThread, self).__init__(name)
+        self.out_queue = mp.Queue(maxsize=1000)
+        self.browserPID = mp.Value('i', 0)
+
+        self.process = mp.Process(target=self.run, name=name)
+        self.process.daemon = True
+        self.process.start()
+
 
     def run(self):
         self.logger.info('Mainthread start')
-        self.crawlerList = [CrawlerThread('crawlerThread_%d' % i) for i in range(self.n_thread)]
-        self.save_thread = threading.Thread(target=self.save_result)
-        self.save_thread.setDaemon(True)
-        self.save_thread.start()
         while True:
             try:
                 self.work_loop()
@@ -41,18 +39,9 @@ class MainThread(Crawler):
                 self.logger.info('work_loop restarting...')
 
     def work_loop(self):
-        self.FLAG = {
-            'restart': False,
-            'last_new_match': datetime.datetime.now(),
-            'last_restart': datetime.datetime.now(),
-        }
-        self.watch_dog()
         self._open()
         while True:
             self.logger.info('work_loop start.')
-            if self.FLAG['restart']:
-                self.logger.warning('restart flag on, work loop break.')
-                break
             if not self.click_soccer():
                 self.logger.info('No Soccer Section. Waiting 3 min.')
                 time.sleep(3 * 60)
@@ -60,39 +49,20 @@ class MainThread(Crawler):
             self.wait4elem('//span[@class="ipo-TeamStack_TeamWrapper"]')
             teams_league = self._get_team_names()
             self.logger.info('Found %d match' % len(teams_league))
-            self.deploy_jobs(teams_league)
+            self.logger.info('teams_leagues:%s' % teams_league)
+            for elem in teams_league:
+                self.out_queue.put_nowait(elem)
             self.logger.info('Put elem to quenes. Sleep 3 minutes.')
             time.sleep(60 * 3)
 
-    # Find new matches,and put it to crawlerThreads.
-    def deploy_jobs(self, teams_league):
-        self.logger.info('function deploy_jobs')
-        i = 0
-        for elem in teams_league:
-            if elem in self.oldMatches:
-                continue
-            self.logger.info('add_match: %s' % str(elem))
-            self.oldMatches.append(elem)
-            self.FLAG['last_new_match'] = datetime.datetime.now()
-            self.crawlerList[i % self.n_thread].add_match(elem)
-            i=i+1
-
-    def save_result(self):
-        while True:
-            for crawler in self.crawlerList:
-                try:
-                    result=crawler.o_queue.get(True,2)
-                    self.saver.insert(result)
-                except queue.Empty as e:
-                    continue
-                except Exception as e:
-                    self.logger.error('save_result error:')
-                    self.logger.error(traceback.format_exc())
-
-
     def _open(self):
         self.logger.debug('function _open')
-        self.browser = webdriver.Firefox()
+        options = Options()
+        options.headless = True
+        self.browser = webdriver.Firefox(options=options)
+        with self.browserPID.get_lock():
+            self.browserPID.value = self.browser.service.process.pid
+        self.logger.info('browserPID=%d'%self.browserPID.value)
         self.browser.get('https://www.bet365.com/en')
         self.init_time = datetime.datetime.now()
 
@@ -108,7 +78,6 @@ class MainThread(Crawler):
         self.logger.warning('browser close')
         try:
             self.browser.quit()
-            time.sleep(10)
         except Exception as e:
             self.logger.error('browser close fail.')
             self.logger.error(traceback.format_exc())
@@ -155,33 +124,3 @@ class MainThread(Crawler):
                 else:
                     self.logger.warning('excced retry times')
                 return False
-
-    def watch_dog(self):
-        if not 'watch_dog' in self.FLAG or not self.FLAG['watch_dog']:
-            self.watchDogThread = threading.Thread(target=self.watch_dog_worker)
-            self.watchDogThread.setDaemon(True)
-            self.watchDogThread.start()
-            self.FLAG['watch_dog']=True
-
-    def watch_dog_worker(self):
-        self.logger.info('watch_dog_worker start')
-        while True:
-            now=datetime.datetime.now()
-            last_new_match_delta=now - self.FLAG['last_new_match']
-            last_restart_delta = now - self.FLAG['last_restart']
-            if last_new_match_delta.total_seconds() > 1800:
-                self.logger.warning('last_new_match_delta excceeds maximum')
-                self.FLAG['restart']=True
-                break
-            elif last_restart_delta.total_seconds() > 1800:
-                self.logger.warning('last_restart_delta excceeds maximum')
-                self.FLAG['restart']=True
-                break
-            time.sleep(120)
-        self.FLAG['watch_dog']=False
-        self.logger.info('watch_dog_worker exit')
-
-
-if __name__ == '__main__':
-    mainThread = MainThread()
-    mainThread.run()

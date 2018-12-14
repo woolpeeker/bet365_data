@@ -1,21 +1,27 @@
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.firefox.options import Options
 
 from matchParser import MatchParser
 from Crawler import Crawler
-from utils import get_logger
+import utils
 
 import multiprocessing as mp
-import datetime, time, traceback, threading
+import datetime, time, traceback, os
 from collections import deque
 from queue import Empty
+
+
 
 #TODO:WatchDog
 class CrawlerThread(Crawler):
     def __init__(self, name):
         super(CrawlerThread, self).__init__(name)
-        self.i_queue = mp.Queue(maxsize=200)
+        self.logger=utils.get_logger(self.name)
+        self.i_queue = mp.Queue(maxsize=500)
         self.o_queue = mp.Queue(maxsize=1000)
+        self.browserPID = mp.Value('i', 0)
+        self.rust_path='C:\\Users\\luojiapeng\\AppData\\Local\\Temp\\rust_mozprofile.*'
         self.process = mp.Process(target=self.run, name=name)
         self.process.daemon=True
         self.process.start()
@@ -25,7 +31,6 @@ class CrawlerThread(Crawler):
         self.i_queue.put_nowait(match)
 
     def run(self):
-        self.logger=get_logger(self.name)
         self.logger.info('Process start')
         self.matchList = deque(maxlen=150)
         while True:
@@ -39,21 +44,13 @@ class CrawlerThread(Crawler):
 
     def work(self):
         self.logger.info('function work')
-        self.FLAG = {
-            'restart': False,
-            'last_restart': datetime.datetime.now(),
-            'last_parse': datetime.datetime.now(),
-        }
-        self.watch_dog()
+        self.FLAG = {}
         self._open()
         self.parser = MatchParser(self.browser,self.logger)
         while True:
             try:
                 self.FLAG['last_start_work_loop']=datetime.datetime.now() #for too short work_loop, Not for watchdog
                 self.work_loop()
-                if self.FLAG['restart']:
-                    self.logger.warning('restart flag on, break in work.')
-                    break
                 used_time=datetime.datetime.now()-self.FLAG['last_start_work_loop']
                 self.logger.info('work loop used time %.2fs'%used_time.total_seconds())
                 if used_time.total_seconds()<20:
@@ -70,6 +67,7 @@ class CrawlerThread(Crawler):
         for match in matches:
             if self.gotomatch(match):
                 result = self.parser.parse(match)
+                result['crawler'] = self.name
                 if result:
                     self.o_queue.put_nowait(result)
                     self.logger.info('get result: %s' % result)
@@ -131,7 +129,12 @@ class CrawlerThread(Crawler):
 
     def _open(self):
         self.logger.info('function open')
-        self.browser = webdriver.Firefox()
+        options = Options()
+        options.headless = True
+        self.browser = webdriver.Firefox(options=options)
+        with self.browserPID.get_lock():
+            self.browserPID.value = self.browser.service.process.pid
+        self.logger.info('browserPID=%d'%self.browserPID.value)
         self.browser.get('https://www.bet365.com/en')
         self.open_time = datetime.datetime.now()
 
@@ -151,25 +154,3 @@ class CrawlerThread(Crawler):
         except Exception as e:
             self.logger.error('browser close fail.')
             self.logger.error(traceback.format_exc())
-
-    def watch_dog(self):
-        if not 'watch_dog' in self.FLAG or not self.FLAG['watch_dog']:
-            self.watchDogThread = threading.Thread(target=self.watch_dog_worker)
-            self.watchDogThread.setDaemon(True)
-            self.watchDogThread.start()
-            self.FLAG['watch_dog']=True
-
-    def watch_dog_worker(self):
-        self.logger.info('watch_dog_worker start')
-        while True:
-            now=datetime.datetime.now()
-            last_parse_delta=now-self.FLAG['last_parse']
-            last_restart_delta=now-self.FLAG['last_restart']
-            if last_parse_delta.total_seconds() > 1800:
-                self.FLAG['restart']=True
-                break
-            elif last_restart_delta.total_seconds() > 1800:
-                self.FLAG['restart']=True
-                break
-            time.sleep(120)
-        self.logger.info('watch_dog_worker exit')

@@ -4,9 +4,9 @@ import json
 
 from Crawler import Crawler
 
-#TODO: WatchDog
 class MatchParser(Crawler):
     def __init__(self, browser, logger):
+        super(MatchParser, self).__init__('Match_parser')
         self.browser = browser
         self.logger=logger
 
@@ -107,75 +107,47 @@ class MatchParser(Crawler):
         markets=markets[0]
 
         #Full time odds
-        fulltime = self.parse_none_odds_market(markets,'Fulltime Result', 3)
+        fulltime = self._parse_odds_market(markets,'Fulltime Result')
         result['odds_fulltime']=json.dumps(fulltime)
 
         #double chance
-        double = self.parse_none_odds_market(markets,'Double Chance', 3)
+        double = self._parse_odds_market(markets,'Double Chance')
         result['odds_double']=json.dumps(double)
 
         #goals
-        goals=self.parse_label_odds_market(markets, 'Match Goals', 3)
-        alter_goals=self.parse_label_odds_market(markets, 'Alternative Match Goals', 3)
-        goals= [*goals, *alter_goals]
-        result['odds_goals']=json.dumps(goals)
+        match_goals=self._parse_odds_market(markets, 'Match Goals')
+        alter_goals=self._parse_odds_market(markets, 'Alternative Match Goals')
+        odd_even=self._parse_odds_market(markets, 'Goals Odd/Even')
+        result['odds_match_goals']=json.dumps(match_goals)
+        result['odds_alter_goals']=json.dumps(alter_goals)
+        result['odds_goals_odd_even']=json.dumps(odd_even)
 
         #corner
-        corners=self.parse_label_odds_market(markets, 'Match Corners', 4)
+        corners=self._parse_odds_market(markets, 'Match Corners')
         result['odds_corners'] = json.dumps(corners)
-
-        #asian corner
-        asian_corner= self.parse_label_odds_market(markets, 'Asian Corners', 3)
-        result['odds_asian_corners'] = json.dumps(asian_corner)
+        asian_corners= self._parse_odds_market(markets, 'Asian Corners')
+        result['odds_asian_corners'] = json.dumps(asian_corners)
+        most_corners = self._parse_odds_market(markets, 'Most Corners')
+        result['odds_most_corners']=json.dumps(most_corners)
 
         self.logger.debug('result: %s' % result)
         return result
 
-    def parse_none_odds_market(self,markets, name, row_len):
-        odds=[]
-        group = markets.find_elements_by_xpath(
-            './/span[contains(@class,"gl-MarketGroupButton_Text")][text()="%s"]/../..' % name)
-        if group:
-            group=group[0]
-            if group.find_elements_by_xpath('.//span[@class="gl-MarketGroupButton_CurrentlySuspended"]'):
-                self.logger.info('%s is suspended. Pass' % name)
-                return odds
-            odds = self.xpaths('.//span[@class="gl-Participant_Odds"]', section=group)
-            try:
-                odds = [float(x.text) for x in odds]
-            except ValueError as e:
-                odds = [None] * 3
-        else:
-            odds = [None] * 3
-        if len(odds) % row_len:
-            self.logger.error('Error in parse_none_odds_market: %s' % name)
-        return odds
-
-    def parse_label_odds_market(self, markets, name, row_len):
+    def _parse_odds_market(self, markets, name):
         odds = []
         group = markets.find_elements_by_xpath(
             './/span[contains(@class,"gl-MarketGroupButton_Text")][text()="%s"]/../..' % name)
-
         if group:
-            group=group[0]
+            group = group[0]
             if group.find_elements_by_xpath('.//span[@class="gl-MarketGroupButton_CurrentlySuspended"]'):
                 self.logger.info('%s is suspended. Pass' % name)
                 return odds
-            corner_button = group.find_element_by_xpath(
-                './/span[contains(@class,"gl-MarketGroupButton_Text")][text()="%s"]/..' % name)
-            if 'gl-MarketGroup_Open' not in corner_button.get_attribute("class"):
-                corner_button.click()
-                self.wait4elem(
-                    './/span[contains(@class,"gl-MarketGroupButton_Text")][text()="%s"]/../..//div[contains(@class,"gl-MarketLabel ")]' % name)
-            wrapper = group.find_element_by_xpath('.//div[@class="gl-MarketGroup_Wrapper "]')
-            odds = wrapper.find_elements_by_xpath('.//span')
-            try:
-                odds = [float(x.text) for x in odds]
-            except ValueError:
-                self.logger.error(traceback.format_exc())
-                self.logger.error('odds: %s' % odds)
-            if len(odds) % row_len:
-                raise Exception("len(odds) is %d, can't divided by %d" % (len(odds), row_len))
+            market_button =  group.find_element_by_xpath('.//span[contains(@class,"gl-MarketGroupButton_Text")][text()="%s"]/..' % name)
+            if 'gl-MarketGroup_Open' not in market_button.get_attribute("class"):
+                market_button.click()
+                self.wait4elem('.//span[contains(@class,"gl-MarketGroupButton_Text")][text()="%s"]/../../div[contains(@class, "gl-MarketGroup_Wrapper")]' % name)
+            odds = self.xpaths('.//span', section=group)
+            odds = [x.text for x in odds]
         return odds
 
     def key_convert(self,result):

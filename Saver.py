@@ -7,6 +7,8 @@ from utils import get_logger
 sql_cmd = {
     'create_table': "CREATE TABLE inplay ( \
  id int NOT NULL AUTO_INCREMENT, PRIMARY KEY (id),\
+ insert_time datetime NOT NULL, \
+ crawler varchar(255), \
  fp char(255) NOT NULL, \
  league char(255), date Date NOT NULL, \
  team_h char(255) NOT NULL, team_a char(255) NOT NULL, minute smallint NOT NULL, \
@@ -24,7 +26,9 @@ sql_cmd = {
  on_target_h smallint, on_target_a smallint, \
  off_target_h smallint, off_target_a smallint, \
  odds_fulltime varchar(255), odds_double varchar(255), \
- odds_corners varchar(255), odds_asian_corners varchar(255), odds_goals varchar(255));"
+ odds_corners varchar(255), odds_asian_corners varchar(255),\
+ odds_match_goals varchar(255), odds_alter_goals varchar(255), \
+ odds_goals_odd_even varchar(255), odds_most_corners varchar(255));"
 }
 
 
@@ -32,7 +36,7 @@ class Saver:
     def __init__(self, name='saver'):
         self.name=name
         self.logger=get_logger(self.name)
-        self.conn = pymysql.connect("localhost", "root", "123456", "soccer", charset='utf8', autocommit=True)
+        self.conn = pymysql.connect(host="localhost", user="root", password="123456", database="soccer", charset='utf8', autocommit=True)
         if not self.exist_table():
             self.create_table()
 
@@ -52,7 +56,11 @@ class Saver:
         self.logger.info('create_table')
         sql = sql_cmd['create_table']
         with self.conn.cursor() as cur:
-            cur.execute(sql)
+            try:
+                cur.execute(sql)
+            except:
+                self.logger.error(traceback.format_exc())
+                self.conn.rollback()
         if not self.exist_table():
             self.logger.error('create table Fails.')
             raise Exception('create table Fails.')
@@ -84,6 +92,7 @@ class Saver:
         self.logger.debug('sql_insert: %s' % sample)
         assert type(sample) == dict
         try:
+            sample['insert_time'] = datetime.datetime.now()
             keys = ','.join(sample.keys())
             vals = self.process_vals(sample.values())
             holder=lambda num: ','.join(['%s']*num)
